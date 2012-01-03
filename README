@@ -1,3 +1,6 @@
+AZ-Reporter by Oladon; email me at oladon+git@gmail.com, or catch me on 
+Freenode as Oladon.
+
 This repository contains one file, az_reporter.pl, which connects to the 
 AgileZen API and pulls down all the data on a project. It then creates some 
 hashes with various statistics about the cards and work, aggregating the 
