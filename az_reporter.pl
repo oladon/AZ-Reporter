@@ -28,7 +28,7 @@ tie %tag_groups, 'Tie::Hash::Indexed';
 my $apikey = "";     # Fill in your API key
 my $projectid = "";     # Fill in your story's numeric id
 my $url = "https://agilezen.com/api/v1/projects/$projectid/stories/?apikey=$apikey&with=everything";
-my $outputdir = "/path/to/your/output/directory";
+my $outputdir = "/path/to/your/output/directory/";     # Leave empty for current directory
 my %ignored_phases = ("Backlog" => 1,
                       "Archive" => 1);
 my %ignored_statuses = ();
@@ -156,7 +156,10 @@ if ($result->is_success) {
       next if !defined $tag_groups{$group}{reports}{$report};
 
       ## Produce the output
-      make_chart($report, $group, \%results);
+      my $chart_result = make_chart($report, $group, \%results);
+      unless ($chart_result == 1) {
+        warn "Failed to create chart file for $report, $group: $chart_result\n";
+      }
     }
   }
 
@@ -284,6 +287,7 @@ sub generate_google_viz {
   for my $phasenum (0..$#{$phasesref}) {
     my $phase = $$phasesref[$phasenum];
     for my $tag (sort @{$tag_groups{$group}{tags}}) {
+      next if !defined $$dataref{$phase} or !defined $$dataref{$phase}{$tag}; # there's no data with the tag or phase
       $js_code .= generate_addrow($chartname, $tag, $$dataref{$phase}{$tag});
     }
     $js_code .= generate_addrow($chartname, 'null', [('null') x @{$stepsref}]) if $phasenum < $#{$phasesref};
@@ -343,9 +347,9 @@ sub make_chart {
   my ($report, $group, $inref) = @_;
   my $outfile = $outputdir . $report . "_" . $group . ".js";
 
-  open my $OUT, ">$outfile" or return -1;
+  open my $OUT, ">$outfile" or return $!;
   print $OUT generate_google_viz($report, $group, $inref);
-  close $OUT or return -1;
+  close $OUT or return $!;
   return 1;
 
 }
