@@ -6,6 +6,7 @@ use DateTime;
 use JSON;
 use LWP::UserAgent;
 use Tie::Hash::Indexed;
+use Data::Dumper;
 
 my $json_data;
 my @included_phases;
@@ -33,28 +34,39 @@ my %ignored_phases = ("Backlog" => 1,
                       "Archive" => 1);
 my %ignored_statuses = ();
 my %ignored_steps = ("backlog" => 1,
-                     "blocked" => 1,
                      "archive" => 1);
 %reports = ("averages" => {"clusters" => \@included_phases,
                            "stacks" => \@included_steps,
                            "colors" => "'green', 'blue'",
                            "haxis_title" => "",
-                           "indata" => "by_card",
-                           "title" => "Average Time",
+                           "indata" => "averages",
+                           "title" => "Average Time per Phase",
                            "vaxis_title" => "Days",
                            "code" => \&averages_report},
             "counts" => {"clusters" => \@included_phases,
                          "stacks" => \@included_statuses,
+                         "colors" => "'red', 'black', 'grey', 'green', 'blue'",
                          "haxis_title" => "",
                          "indata" => "counts",
-                         "title" => "Counts",
+                         "title" => "Counts per Phase",
                          "vaxis_title" => "Count",
-                         "code" => \&counts_report});
-%tag_groups = ("all" => {"colors" => "'red', 'black', 'grey', 'green', 'blue'",
-                         "reports" => {"counts" => 1},
+                         "code" => \&counts_report},
+            "throughput" => {"clusters" => ["all", '10', '12', '1'],
+                             "stacks" => {"count" => ["count"],
+                                          "phase" => \@included_phases,
+                                          "step" => ["block", "wait", "work"]},
+                             "colors" => "'black', 'dimgrey', 'slategrey', 'steelblue', 'royalblue', 'red', 'green', 'blue'",
+                             "haxis_title" => "Month Finished",
+                             "indata" => "throughput",
+                             "title" => "Average Throughput by Month Finished",
+                             "vaxis_title" => "Days",
+                             "tags" => 0,
+                             "code" => \&throughput_report});
+%tag_groups = ("all" => {"reports" => {"counts" => 1,
+                                       "throughput" => 1},
                          "tags" => ["all"]},
                "standard" => {"reports" => {"averages" => 1},
-                              "tags" => ["bug", "feature"]},     # tags to include in this group
+                              "tags" => ["bug", "feature"]},
                "nonstandard" => {"reports" => {"averages" => 1},
                                  "tags" => ["request"]},
                "custom" => {"reports" => {"averages" => 1},
@@ -74,6 +86,7 @@ if ($result->is_success) {
     $stories{$$storyref{id}} = $storyref;
 
     $statuses{$$storyref{status}}++;
+    push(@{$storydata{by_status}{$$storyref{status}}}, $storyref);
 
     # Go through milestones (phase changes)
     for my $j (0..$#{$$storyref{milestones}}) {
@@ -101,7 +114,7 @@ if ($result->is_success) {
 
         my $time = get_overlap($$mileref{startTime}, $$mileref{endTime}, $$stepref{startTime}, $$stepref{endTime});
         if ((defined $time) && ($time > 0)) {
-          $stories{$$storyref{id}}{total_times}{$$mileref{phase}{name}}{$$stepref{type}} += $time;
+          $stories{$$storyref{id}}{total_times}{$$mileref{phase}{name}}{$$stepref{type}} += round($time / 86400);
         } else {
           $stories{$$storyref{id}}{total_times}{$$mileref{phase}{name}}{$$stepref{type}} += 0;
         }
@@ -119,7 +132,7 @@ if ($result->is_success) {
       }
     }
     for my $tag (@temp_tags_list) {
-      push(@{$storydata{by_card}{$tag}}, $storyref);
+      push(@{$storydata{by_tag}{$tag}}, $storyref);
       push(@{$storydata{counts}{$tag}{$$storyref{phase}{name}}{$$storyref{status}}}, $$storyref{id});  # Count this card under tag/phase/status
     }
 
@@ -129,22 +142,72 @@ if ($result->is_success) {
   @included_statuses = get_left(\%statuses, \%ignored_statuses);
   @included_steps = get_left(\%steps, \%ignored_steps);
 
-  ## Average all times together and keep total times as well
-  for my $tag (sort keys %{$storydata{by_card}}) {
-    for my $story (@{$storydata{by_card}{$tag}}) {
+  ## Average all times together
+  my %tempdata;
+  for my $story (values %stories) {
+#    print Dumper $$story{total_times} if $$story{status} eq "finished";
+    for my $phase (keys %{$$story{total_times}}) {
+      next if defined $ignored_phases{$phase};
+      for my $step (keys %{$$story{total_times}{$phase}}) {
+        next if defined $ignored_steps{$step};
+        $tempdata{totals}{all}{$phase}{$step} += $$story{total_times}{$phase}{$step};
+        $tempdata{counts}{all}{$phase}{$step}++;
+        $storydata{averages}{all}{$phase}{$step} = $tempdata{totals}{all}{$phase}{$step} / $tempdata{counts}{all}{$phase}{$step};
+      }
+    }
+  }
+
+  %tempdata = ();
+  for my $tag (keys %{$storydata{by_tag}}) {
+    for my $story (@{$storydata{by_tag}{$tag}}) {
       for my $phase (keys %{$$story{total_times}}) {
         next if defined $ignored_phases{$phase};
         for my $step (keys %{$$story{total_times}{$phase}}) {
           next if defined $ignored_steps{$step};
-          $storydata{by_card}{averages}{$tag}{$phase}{$step} = $$story{total_times}{$phase}{$step} if !defined $storydata{by_card}{averages}{$tag}{$phase}{$step};
-          $storydata{by_card}{totals}{$tag}{$phase}{$step} += $$story{total_times}{$phase}{$step};
-          $storydata{by_card}{averages}{$tag}{$phase}{$step} = ($storydata{by_card}{averages}{$tag}{$phase}{$step} + $$story{total_times}{$phase}{$step}) / 2;
-          $storydata{by_card}{averages}{all}{$phase}{$step} = ($storydata{by_card}{averages}{$tag}{$phase}{$step} + $$story{total_times}{$phase}{$step}) / 2;
+          $tempdata{totals}{$tag}{$phase}{$step} += $$story{total_times}{$phase}{$step};
+          $tempdata{counts}{$tag}{$phase}{$step}++;
+          $storydata{averages}{$tag}{$phase}{$step} = $tempdata{totals}{$tag}{$phase}{$step} / $tempdata{counts}{$tag}{$phase}{$step};
         }
       }
     }
+  }
+  undef %tempdata;
+  # End gathering average times per phase
+
+  # Gather data about total throughput times
+  for my $card (@{$storydata{by_status}{finished}}) {
+    my $month = DateTime->from_epoch(epoch => parse_to_epoch($$card{metrics}{finishTime}))->month();
+    my $alltimes = \%{$storydata{throughput}{all}};
+    my $monthtimes = \%{$storydata{throughput}{$month}};
+
+    # Get times by phase
+    for my $phase (keys %{$$card{total_times}}) {
+      next if defined $ignored_phases{$phase};
+      for my $step (keys %{$$card{total_times}{$phase}}) {
+        next if defined $ignored_steps{$step};
+        $$alltimes{phase}{$phase} += $$card{total_times}{$phase}{$step};
+        $$monthtimes{phase}{$phase} += $$card{total_times}{$phase}{$step};
+      }
+    }
+
+    # Get times by step
+    my $blockedTime = \$$card{metrics}{blockedTime};
+    my $waitTime = \$$card{metrics}{waitTime};
+    my $workTime = \$$card{metrics}{workTime};
+
+    $$alltimes{step}{block} += $$blockedTime;
+    $$alltimes{step}{wait} += $$waitTime;
+    $$alltimes{step}{work} += $$workTime;
+    $$monthtimes{step}{block} += $$blockedTime;
+    $$monthtimes{step}{wait} += $$waitTime;
+    $$monthtimes{step}{work} += $$workTime;
+
+    $storydata{throughput}{all}{count}{count}++;
+    $storydata{throughput}{$month}{count}{count}++;
 
   }
+  # End gathering data about throughput times
+
 
   ## Loop through all reports
   for my $report (keys %reports) {
@@ -154,6 +217,10 @@ if ($result->is_success) {
 
     for my $group (keys %tag_groups) {
       next if !defined $tag_groups{$group}{reports}{$report};
+
+      if (defined $reports{$report}{tags} && $reports{$report}{tags} == 0) {
+        $group = 0;
+      }
 
       ## Produce the output
       my $chart_result = make_chart($report, $group, \%results);
@@ -177,8 +244,8 @@ sub averages_report {
   for my $phase (@{$phasesref}) {
     for my $tag (keys %{$inref}) {
       for my $step (sort @{$stepsref}) {
-        $$inref{averages}{$tag}{$phase}{$step} = 0 if !defined $$inref{averages}{$tag}{$phase}{$step};
-        push(@{$time_per_phase{$phase}{$tag}}, round($$inref{averages}{$tag}{$phase}{$step} / 86400));
+        $$inref{$tag}{$phase}{$step} = 0 if !defined $$inref{$tag}{$phase}{$step};
+        push(@{$time_per_phase{$phase}{$tag}}, $$inref{$tag}{$phase}{$step});
       }
     }
   }
@@ -216,6 +283,39 @@ sub counts_report {
   return %all_counts;
 }
 
+sub throughput_report {     # Get the average throughput times by all and month
+  my ($self, $inref) = @_;
+  my $phasesref = $$self{clusters};
+  my $stepsref = $$self{stacks};
+  my @line;
+  my %avg_throughputs = ();
+
+  # Period here is a month number or "all"
+  for my $period (sort keys %$inref) {
+    for my $stackname (sort keys %{$stepsref}) {
+      for my $stackitem (@{$$stepsref{$stackname}}) {
+        @line = ();
+        for my $testname (sort keys %{$$inref{$period}}) {
+          for my $testitem (sort keys %{$$inref{$period}{$testname}}) {
+            if ($stackname eq $testname) {
+              if ($testname eq "count") {
+                push(@line, $$inref{$period}{$testname}{$testitem});
+              } else {
+                push(@line, round($$inref{$period}{$testname}{$testitem} / $$inref{$period}{count}{count}));
+              }
+            } else {
+              push(@line, "null");
+            }
+          }
+        }
+      }
+      push(@{$avg_throughputs{$period}}, [@line]);
+    }
+  }
+  return %avg_throughputs;
+
+}
+
 sub date_diff {
   my ($datestring1, $datestring2) = @_;
 
@@ -246,10 +346,12 @@ sub generate_addrow {
 sub generate_google_viz {
   my ($report, $group, $dataref) = @_;
   my $chartname = $report . "_" . $group;
+  my $grouping = "";
   my $js_code = "";
   my $phasesref = $reports{$report}{clusters};
   my $stepsref = $reports{$report}{stacks};
   my $title = $reports{$report}{title};
+  $grouping = " by Tag ($group)" if $group ne "0";
 
   my $js_header = "google.load(\"visualization\", \"1\", {packages:[\"corechart\"]});
   google.setOnLoadCallback(drawChart_$chartname);
@@ -258,9 +360,9 @@ sub generate_google_viz {
 
   my $js_footer = "    var ${chartname}_chart = new google.visualization.ColumnChart(document.getElementById('${chartname}_visualization'));
     ${chartname}_chart.draw(${chartname}_data, {
-                    title: '$title per Phase by Tag ($group)',
+                    title: '$title$grouping',
                     width: 800, height: 600,\n";
-  if (defined $tag_groups{$group}{colors}) {
+  if (defined $tag_groups{$group} && defined $tag_groups{$group}{colors}) {
     $js_footer .= "                    colors: [" . $tag_groups{$group}{colors} . "],\n";
   } elsif (defined $reports{$report}{colors}) {
     $js_footer .= "                    colors: [" . $reports{$report}{colors} . "],\n";
@@ -280,17 +382,44 @@ sub generate_google_viz {
   $js_code .= $js_header;
 
   $js_code .= generate_addcolumn($chartname, "string", "Tag");
-  for my $step (sort @{$stepsref}) {
-    $js_code .= generate_addcolumn($chartname, "number", $step);
+  # Is the chart to be clustered with different values?
+  if (ref($stepsref) eq 'HASH') {
+    for my $stepgroup (sort keys %{$stepsref}) {
+      for my $step (@{$$stepsref{$stepgroup}}) {
+        $js_code .= generate_addcolumn($chartname, "number", $step);
+      }
+    }
+  } else {
+    for my $step (@{$stepsref}) {
+      $js_code .= generate_addcolumn($chartname, "number", $step);
+    }
   }
 
   for my $phasenum (0..$#{$phasesref}) {
     my $phase = $$phasesref[$phasenum];
-    for my $tag (sort @{$tag_groups{$group}{tags}}) {
-      next if !defined $$dataref{$phase} or !defined $$dataref{$phase}{$tag}; # there's no data with the tag or phase
-      $js_code .= generate_addrow($chartname, $tag, $$dataref{$phase}{$tag});
+
+    if ($group ne "0") {
+      for my $tag (sort @{$tag_groups{$group}{tags}}) {
+        next if !defined $$dataref{$phase} or !defined $$dataref{$phase}{$tag}; # there's no data with the tag or phase
+        $js_code .= generate_addrow($chartname, $tag, $$dataref{$phase}{$tag});
+      }
+    } else {
+      for my $line (@{$$dataref{$phase}}) {
+        $js_code .= generate_addrow($chartname, $phase, $line);
+      }
     }
-    $js_code .= generate_addrow($chartname, 'null', [('null') x @{$stepsref}]) if $phasenum < $#{$phasesref};
+
+    if (ref($stepsref) eq 'HASH') {
+      my @allsteps;
+      for my $stepgroup (sort keys %{$stepsref}) {
+        push(@allsteps, @{$$stepsref{$stepgroup}});
+      }
+      $js_code .= generate_addrow($chartname, 'null', [('null') x @allsteps]) if $phasenum < $#{$phasesref};
+    } else {
+      for my $step (@{$stepsref}) {
+        $js_code .= generate_addrow($chartname, 'null', [('null') x @{$stepsref}]) if $phasenum < $#{$phasesref};
+      }
+    }
   }
   $js_code .= $js_footer;
 

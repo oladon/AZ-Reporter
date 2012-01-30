@@ -1,10 +1,29 @@
 AZ-Reporter by Oladon; email me at oladon+git@gmail.com, or catch me on 
 Freenode as Oladon.
 
+I. CONTENTS
+-------------------------------------------------------------------------------
+I. CONTENTS
+II. INTRODUCTION
+III. CONFIGURATION
+IV. GETTING STARTED
+V. BUG REPORTING, FEATURE SUGGESTIONS, PATCHING
+
+
+II. INTRODUCTION
+-------------------------------------------------------------------------------
+
 This repository contains one file, az_reporter.pl, which connects to the 
 AgileZen API and pulls down all the data on a project. It then creates some 
 hashes with various statistics about the cards and work, aggregating the 
 data as it goes.
+
+If this is your first time using it, skip down to "GETTING STARTED"; the 
+section titled "CONFIGURATION" is meant as a reference.
+
+
+III. CONFIGURATION
+-------------------------------------------------------------------------------
 
 The variables in the ### User configuration ### section are explained below.
 
@@ -38,7 +57,87 @@ $outputdir -- Any files created/modified by the script will be in this dir.
                to the statuses or steps in the graph (if used). The "colors" 
                value in %tag_groups will override that in %reports, if present.
 
--------
 
-Feel free to email/message me with any questions; patches that extend or fix 
-functionality are also welcome!
+IV. GETTING STARTED
+-------------------------------------------------------------------------------
+
+The script will need some configuration before it will work for your project, 
+but it's designed to be as easy to set up as possible while still retaining a 
+large degree of flexibility.
+
+1. Set up your API Key and project ID
+   To start with, you'll need to set up your API key and project ID in the 
+$apikey and $projectid variables (respectively). If you don't have an API key, 
+you'll need to set one up by following the directions on AgileZen's site. You 
+can get your project ID from the URL -- it's the number between "project/" and 
+"/board" if you're on the Board view.
+
+2. Set up Output Directory
+   Next, set up the $outputdir variable with the directory you'd like the 
+script to use for generated output (such as graphs and/or data files [in the 
+future]). Make sure the directory exists and the script has permission to write 
+to it!
+
+3. Customize Tag Groups
+   At this point, you're ready to customize which graphs the script creates. 
+The default setup has four "tag groups," which are collections of tags that 
+should be grouped for various reports. You should change the tag names (the 
+"tag" value in each tag group) to reflect the tags you're using in your 
+project. For example, if you wanted to use "suggestion" in addition to 
+"request", you would change the %tag_groups definition to:
+
+%tag_groups = ("all" => {"reports" => {"counts" => 1,
+                                       "throughput" => 1},
+                         "tags" => ["all"]},
+               "standard" => {"reports" => {"averages" => 1},
+                              "tags" => ["bug", "feature"]},
+               "nonstandard" => {"reports" => {"averages" => 1},
+                                 "tags" => ["request", "suggestion"]},
+               "custom" => {"reports" => {"averages" => 1},
+                            "tags" => ["custom"]});
+
+You can remove groups, add them, and modify them as required by your project; 
+a tag value of "all" will be interpreted as all tags, not a literal label of 
+"all". In the case of the above code, there will be four report groups: one 
+will run the "counts" and "throughput" reports on all the cards regardless of 
+tag. The second, third, and fourth will run the "averages" report on their 
+respective tag groups ("bug" and "feature", "request" and "suggestion", and 
+"custom" [three different groups]). Note that there's nothing special about 
+having two tags; a group can have as many tags as you need.
+
+4. Set up Ignored Phases/Steps/Statuses
+   By default, the reports will ignore cards currently in phases called 
+"Backlog" or "Archive" (you should change these if your phases are named 
+differently, or remove them if you don't want to exclude any cards), as well as 
+cards whose current step is "backlog" or "archive". The step names can only be 
+changed by AgileZen -- if they change them, you'll need to change them in the 
+code. As of the time of this writing (1/30/2012), step and status names are:
+
+Step        Corresponding Status
+-------     --------------------
+backlog     planned
+working     started
+ready       ready
+blocked     blocked
+archive     finished
+
+You can add any of these to the "ignored" list by setting it as shown in the 
+default code. Again, there's no magic number -- but you'll need to have at 
+least one card in a non-ignored phase/step/status, or you won't get anything 
+useful from the script.
+
+5. Run the code!
+   The code doesn't need any arguments -- you can just run it, using either 
+"perl az_reporter.pl" or "./az_reporter.pl" (if it's executable, as it should 
+be). If you get any errors, read the error carefully and if you can't solve 
+the problem, shoot me an email or PM me on IRC.
+
+
+V. BUG REPORTING, FEATURE SUGGESTIONS, PATCHING
+-------------------------------------------------------------------------------
+
+Email: oladon+git@gmail.com
+Freenode: Oladon
+
+Feel free to email/message me with any questions, comments, or suggestions; 
+patches that extend or fix functionality are also welcome!
