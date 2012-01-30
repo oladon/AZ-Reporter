@@ -7,7 +7,8 @@ I. CONTENTS
 II. INTRODUCTION
 III. CONFIGURATION
 IV. GETTING STARTED
-V. BUG REPORTING, FEATURE SUGGESTIONS, PATCHING
+V. OUTPUT & USAGE
+VI. BUG REPORTING, FEATURE SUGGESTIONS, PATCHING
 
 
 II. INTRODUCTION
@@ -48,7 +49,7 @@ $outputdir -- Any files created/modified by the script will be in this dir.
                   backlog, working, ready, blocked, and archive
 
 %reports -- This hash contains all the reports that can be run using this 
-            script (right now just two). New reports can be added as elements 
+            script (right now just three). New reports can be added as elements 
             of this hash, and should include a "code" key which points to the 
             subroutine to use as the aggregation code for the report.
 
@@ -132,8 +133,19 @@ useful from the script.
 be). If you get any errors, read the error carefully and if you can't solve 
 the problem, shoot me an email or PM me on IRC.
 
+V. OUTPUT & USAGE
+-------------------------------------------------------------------------------
 
-V. BUG REPORTING, FEATURE SUGGESTIONS, PATCHING
+The output of this script will be a number of JavaScript (.js) files equal to 
+the number of reports the script is set to run. Each JavaScript file contains 
+the code for a single Google Visualizations chart. At this time (1/30/2012), 
+a Google Visualizations stacked (and optionally clustered) bar chart is the 
+only graph type supported; in the future, support is planned for other graphs 
+as well as a "raw data" output format which could be used with other graphing 
+software for an even more customizable approach.
+
+
+VI. BUG REPORTING, FEATURE SUGGESTIONS, PATCHING
 -------------------------------------------------------------------------------
 
 Email: oladon+git@gmail.com
