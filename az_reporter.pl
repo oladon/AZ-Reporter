@@ -20,7 +20,7 @@ my %stories;
 my %storydata;
 my %tag_groups;
 
-tie %phases, 'Tie::Hash::Indexed';
+#tie %phases, 'Tie::Hash::Indexed';
 tie %statuses, 'Tie::Hash::Indexed';
 tie %steps, 'Tie::Hash::Indexed';
 tie %tag_groups, 'Tie::Hash::Indexed';
@@ -28,7 +28,6 @@ tie %tag_groups, 'Tie::Hash::Indexed';
 ### User configuration ###
 my $apikey = "";     # Fill in your API key
 my $projectid = "";     # Fill in your story's numeric id
-my $url = "https://agilezen.com/api/v1/projects/$projectid/stories/?apikey=$apikey&with=everything";
 my $outputdir = "/path/to/your/output/directory/";     # Leave empty for current directory
 my %ignored_phases = ("Backlog" => 1,
                       "Archive" => 1);
@@ -37,7 +36,7 @@ my %ignored_steps = ("backlog" => 1,
                      "archive" => 1);
 %reports = ("averages" => {"clusters" => \@included_phases,
                            "stacks" => \@included_steps,
-                           "colors" => "'green', 'blue'",
+                           "colors" => "'red', 'green', 'blue'",
                            "haxis_title" => "",
                            "indata" => "averages",
                            "title" => "Average Time per Phase",
@@ -74,7 +73,11 @@ my %ignored_steps = ("backlog" => 1,
 ### END User configuration ###
 
 my $ua = LWP::UserAgent->new;
-my $result = $ua->get($url);
+my $baseurl = "https://agilezen.com/api/v1/projects/$projectid/";
+my $storiesurl = $baseurl . "stories/?apikey=$apikey&with=everything";
+my $result = $ua->get($storiesurl);
+
+%phases = get_phases($baseurl, $apikey);
 
 if ($result->is_success) {
   $json_data = $result->{_content};
@@ -95,8 +98,6 @@ if ($result->is_success) {
       if (!defined $$mileref{endTime}) {
         $$mileref{endTime} = sprintf("%s", DateTime->now);;
       }
-
-      $phases{$$mileref{phase}{name}}++;
 
       # Go through steps (status changes), find any that match
       for my $k (0..$#{$$storyref{steps}}) {
@@ -145,7 +146,6 @@ if ($result->is_success) {
   ## Average all times together
   my %tempdata;
   for my $story (values %stories) {
-#    print Dumper $$story{total_times} if $$story{status} eq "finished";
     for my $phase (keys %{$$story{total_times}}) {
       next if defined $ignored_phases{$phase};
       for my $step (keys %{$$story{total_times}{$phase}}) {
@@ -337,8 +337,8 @@ sub generate_addcolumn {
 }
 
 sub generate_addrow {
-  my ($chartname, $tag, $dataref) = @_;
-  $tag = "\"$tag\"" if $tag ne "null";
+  my ($chartname, $phase, $tag, $dataref) = @_;
+  $tag = "\"" . ($phase ne "" ? $phase . " - " : "") . "$tag\"" if $tag ne "null";
 
   return "    ${chartname}_data.addRow([$tag, " . join(", ", @{$dataref}) . "]);\n";
 }
@@ -390,22 +390,24 @@ sub generate_google_viz {
       }
     }
   } else {
-    for my $step (@{$stepsref}) {
+    for my $step (sort @{$stepsref}) {
       $js_code .= generate_addcolumn($chartname, "number", $step);
     }
   }
 
   for my $phasenum (0..$#{$phasesref}) {
     my $phase = $$phasesref[$phasenum];
+    my $first = 1;
 
     if ($group ne "0") {
       for my $tag (sort @{$tag_groups{$group}{tags}}) {
         next if !defined $$dataref{$phase} or !defined $$dataref{$phase}{$tag}; # there's no data with the tag or phase
-        $js_code .= generate_addrow($chartname, $tag, $$dataref{$phase}{$tag});
+        $js_code .= generate_addrow($chartname, ($first == 1 ? $phase : ""), $tag, $$dataref{$phase}{$tag});
+        $first = 0;
       }
     } else {
       for my $line (@{$$dataref{$phase}}) {
-        $js_code .= generate_addrow($chartname, $phase, $line);
+        $js_code .= generate_addrow($chartname, "", $phase, $line);
       }
     }
 
@@ -414,10 +416,10 @@ sub generate_google_viz {
       for my $stepgroup (sort keys %{$stepsref}) {
         push(@allsteps, @{$$stepsref{$stepgroup}});
       }
-      $js_code .= generate_addrow($chartname, 'null', [('null') x @allsteps]) if $phasenum < $#{$phasesref};
+      $js_code .= generate_addrow($chartname, $phase, 'null', [('null') x @allsteps]) if $phasenum < $#{$phasesref};
     } else {
       for my $step (@{$stepsref}) {
-        $js_code .= generate_addrow($chartname, 'null', [('null') x @{$stepsref}]) if $phasenum < $#{$phasesref};
+        $js_code .= generate_addrow($chartname, $phase, 'null', [('null') x @{$stepsref}]) if $phasenum < $#{$phasesref};
       }
     }
   }
@@ -470,6 +472,25 @@ sub get_overlap {
 
   return $overlap;
 
+}
+
+# Pull the phases and store each phase with its id in a hash
+sub get_phases {
+  my ($url, $apikey) = @_;
+  my $ua = LWP::UserAgent->new;
+  my $result = $ua->get($url . "phases?apikey=$apikey");
+  my %phases;
+
+  if ($result->is_success) {
+    $json_data = $result->{_content};
+    my %decoded = %{decode_json($json_data)};
+
+    for my $i (0..$#{$decoded{items}}) {
+      my $phase = ${$decoded{items}[$i]}{name};
+      $phases{$phase} = ${$decoded{items}[$i]}{id};
+    }
+  }
+  return %phases;
 }
 
 sub make_chart {
